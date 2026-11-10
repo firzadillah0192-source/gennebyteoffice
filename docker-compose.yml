@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: office
+      POSTGRES_DB: office
+      POSTGRES_PASSWORD: ${OFFICE_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - officedb:/var/lib/postgresql/data
+volumes:
+  officedb:

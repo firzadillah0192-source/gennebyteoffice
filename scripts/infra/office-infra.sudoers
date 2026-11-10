@@ -1,0 +1,2 @@
+# Mengizinkan user 'gennexbyte' menjalankan HANYA skrip baca-saja ini sebagai root, tanpa password.
+gennexbyte ALL=(root) NOPASSWD: /usr/local/bin/office-infra *

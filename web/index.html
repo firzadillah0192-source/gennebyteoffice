@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gennexbyte Office</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <main id="scene" aria-label="Kantor"></main>
+  <div id="island" hidden></div>
+  <header id="topbar">
+    <b>Gennexbyte Office <span id="live"></span></b>
+    <button id="btn-lobby" hidden>← Lobi</button>
+    <button id="btn-board" hidden>Papan tugas</button>
+    <button id="btn-ledger" hidden>Pembukuan</button>
+    <button id="btn-auto" hidden></button>
+    <span id="room-title"></span>
+    <span class="spacer"></span>
+    <span id="guest-badge" hidden>Mode tamu · hanya lihat</span>
+    <span id="conn">menghubungkan…</span>
+    <button id="btn-login" hidden>Masuk admin</button>
+    <button id="btn-logout">Keluar</button>
+  </header>
+  <div id="leftcol"><aside id="approvals" hidden></aside><aside id="roomlist"></aside></div>
+  <aside id="roster"></aside>
+  <aside id="panel" hidden></aside>
+  <aside id="board" hidden></aside>
+  <aside id="ledger" hidden></aside>
+  <aside id="cfg" hidden></aside>
+  <nav id="rooms" aria-label="Ruangan"></nav>
+  <section id="feed" aria-label="Aktivitas"></section>
+  <div id="login" hidden>
+    <form id="login-form">
+      <h1>Gennexbyte Office</h1>
+      <p>Masukkan token admin untuk membuka kantor.</p>
+      <input id="token" type="password" placeholder="Token admin" autocomplete="current-password" required>
+      <button>Masuk</button>
+      <button type="button" id="login-cancel">Kembali sebagai tamu</button>
+      <small id="login-err"></small>
+    </form>
+  </div>
+  <script src="./boot.js"></script>
+  <script type="module" src="./app.js" onerror="officeFail('gagal memuat app.js / modul three (cek akses ke cdn.jsdelivr.net)')"></script>
+</body>
+</html>

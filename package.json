@@ -1,0 +1,1 @@
+{"name":"gennexbyteoffice","version":"0.1.0","private":true,"type":"module","scripts":{"start":"node --env-file=.env server/index.js","migrate":"node --env-file=.env server/migrate.js","worker":"node --env-file=.env agents/worker.js"},"dependencies":{"pg":"^8.23.1"}}
