@@ -56,7 +56,7 @@ async function handle(def, task) {
   task.prompt = task.context ? `${task.context}\n\nPesan baru dari pemilik: ${task.instruction}` : task.instruction;
   if (def.stub) {
     await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: def.note || "Belum diaktifkan: karyawan ini belum punya kemampuan kerja (tool). Minta admin membangunnya dulu; tugas ini tidak dijalankan." });
-    console.log(`[${def.id}] tugas #${task.id} ditolak (belum aktif)`); return;
+    ctl.close(); console.log(`[${def.id}] tugas #${task.id} ditolak (belum aktif)`); return;
   }
   console.log(`[${def.id}] tugas #${task.id}: ${task.instruction}`);
   def.busy = true; await report("working", "mulai: " + task.instruction.slice(0, 60));
