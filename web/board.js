@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { box } from "./rooms.js";
 import { plain } from "./md.js";
 
-const COL = { queued: "#6b7385", running: "#2d84f5", done: "#2db36a", failed: "#e5484d", cancelled: "#9aa3b2" };
-const LABEL = { queued: "antre", running: "dikerjakan", done: "selesai", failed: "gagal", cancelled: "dibatalkan" };
+const COL = { queued: "#6b7385", running: "#2d84f5", done: "#2db36a", failed: "#e5484d", cancelled: "#9aa3b2", stopped: "#9aa3b2" };
+const LABEL = { queued: "antre", running: "dikerjakan", done: "selesai", failed: "gagal", cancelled: "dibatalkan", stopped: "dihentikan" };
 
 // Papan tulis berdiri di tiap ruangan; isinya (canvas) menampilkan tugas terbaru ruangan itu.
 export class Board {

@@ -2,7 +2,7 @@
 
 Planning platform kantor virtual dan pusat kontrol AI agent untuk ekosistem Gennexbyte.
 
-**Status: perencanaan.** Repository ini berisi dokumen rancangan; belum ada runtime agent, aplikasi web, atau deployment.
+**Status: berjalan** di office.gennexbyte.com (VM 3). Server Node + Postgres (`server/`), worker agent (`agents/`, `remote/`), dan kantor 3D (`web/`). Rancangan detail: [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Konsep
 

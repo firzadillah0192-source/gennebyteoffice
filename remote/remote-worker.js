@@ -1,5 +1,5 @@
 // Worker remote: berjalan di VM platform (mis. NxBooth). Ia yang menghubungi Office (keluar), mengambil tugas Engineer, dan bekerja LOKAL.
-import { makeFlow } from "./claude-flow.js"; import { makeEngineer } from "./engineer-generic.js"; import { git } from "./claude-engine.js";
+import { makeFlow } from "./claude-flow.js"; import { makeControl, Stopped } from "./task-control.js"; import { redact } from "./claude-engine.js"; import { makeEngineer } from "./engineer-generic.js"; import { git } from "./claude-engine.js";
 const { OFFICE_URL, BOT_TOKEN, BOT_ID, PLATFORM, WORKDIR } = process.env;
 for (const [k, v] of Object.entries({ OFFICE_URL, BOT_TOKEN, BOT_ID, PLATFORM, WORKDIR })) if (!v) { console.error(`.env belum lengkap: ${k} kosong`); process.exit(1); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,14 +15,18 @@ const report = (status, step) => call("/api/event", def.token, { status, step })
 
 async function handle(task) {
   console.log(`tugas #${task.id}: ${task.instruction}`);
-  await report("working", "mulai: " + task.instruction.slice(0, 60));
+  const ctl = makeControl({ call, token: def.token, taskId: task.id, redact: (t) => redact(t, [WORKDIR]) });
+  const say = (status, step) => { if (status === "working") ctl.log(step); return report(status, step); };
+  task.prompt = task.context ? `${task.context}\n\nPesan baru dari pemilik: ${task.instruction}` : task.instruction;
+  await say("working", "mulai: " + task.instruction.slice(0, 60));
   try {
-    const result = await handleClaude(def, task, report);
-    await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result });
+    const result = await handleClaude(def, task, say, ctl);
+    await ctl.close(); await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result });
     await report("done", result.replace(/\s+/g, " ").slice(0, 80));
   } catch (e) {
-    await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message });
-    await report("error", e.message.slice(0, 80));
+    await ctl.close();
+    if (e instanceof Stopped || e?.name === "Stopped") { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "stopped", result: e.message }); await report("idle", "dihentikan admin"); }
+    else { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message }); await report("error", e.message.slice(0, 80)); }
   }
   await sleep(3000); await report("idle", "menunggu tugas");
 }

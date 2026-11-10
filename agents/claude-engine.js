@@ -23,21 +23,42 @@ export async function redact(text, extraDirs = []) {
   return out.replace(/\b(sk|ghp|gho|xox[bap])[-_][A-Za-z0-9_-]{16,}/g, "[disembunyikan]").replace(/\bbot_[A-Za-z0-9_-]{20,}/g, "[disembunyikan]");
 }
 
-export function runClaude({ cwd, system, prompt, tools, allow, deny = [] }) {
+// Ringkas satu pemakaian tool Claude untuk log tugas (tanpa isi berkas yang ditulis).
+function toolLine(name, input = {}) {
+  const v = input.command ?? input.file_path ?? input.pattern ?? input.path ?? input.url ?? input.description ?? "";
+  return `${name}${v ? " " + String(v).replace(/\s+/g, " ") : ""}`.slice(0, 400);
+}
+
+// onLog(text, kind) menerima langkah Claude secara live (stream-json); signal menghentikan proses bila admin menekan Hentikan.
+export function runClaude({ cwd, system, prompt, tools, allow, deny = [], signal, onLog }) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
     try { countRun(); } catch (e) { return reject(e); }
-    const args = ["-p", "--output-format", "json", "--no-session-persistence", "--append-system-prompt", system,
+    const args = ["-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--append-system-prompt", system,
       "--tools", tools.join(","), "--disallowedTools", ...DENY, ...deny, "--allowedTools", ...allow];     // daftar variadik di akhir; prompt lewat stdin
     const env = { ...process.env, PATH: `${HOME}/.local/bin:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`,
       GIT_AUTHOR_NAME: "Gennexbyte Office Bot", GIT_AUTHOR_EMAIL: "office-bot@gennexbyte.local", GIT_COMMITTER_NAME: "Gennexbyte Office Bot", GIT_COMMITTER_EMAIL: "office-bot@gennexbyte.local" };
     const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-    let out = "", err = ""; child.stdout.on("data", (d) => out += d); child.stderr.on("data", (d) => err += d);
-    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Claude melewati batas waktu ${TIMEOUT_MS / 60000} menit`)); }, TIMEOUT_MS);
-    child.on("error", (e) => { clearTimeout(timer); reject(e); });
-    child.on("close", (code) => { clearTimeout(timer);
-      try { const j = JSON.parse(out); if (j.is_error) return reject(new Error(String(j.result || "Claude error").slice(0, 300)));
-        resolve({ text: String(j.result ?? ""), cost: j.total_cost_usd, turns: j.num_turns });
-      } catch { code === 0 && out.trim() ? resolve({ text: out.trim() }) : reject(new Error(`claude keluar kode ${code}: ${(err || out).slice(0, 300)}`)); } });
+    let buf = "", err = "", final = null, lastText = "", raw = "", ended = false;
+    const finish = (fn, v) => { if (ended) return; ended = true; clearTimeout(timer); signal?.removeEventListener("abort", onAbort); fn(v); };
+    const line = (l) => {
+      if (!l.trim()) return; let j; try { j = JSON.parse(l); } catch { raw += l + "\n"; return; }
+      if (j.type === "result") { final = j; return; }
+      if (j.type === "assistant") for (const c of j.message?.content ?? []) {
+        if (c.type === "tool_use") onLog?.(toolLine(c.name, c.input), "tool");
+        else if (c.type === "text" && c.text?.trim()) { lastText = c.text; onLog?.(c.text.trim().slice(0, 600), "note"); }
+      }
+    };
+    child.stdout.on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\n")) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); } });
+    child.stderr.on("data", (d) => err += d);
+    const timer = setTimeout(() => { child.kill("SIGTERM"); finish(reject, new Error(`Claude melewati batas waktu ${TIMEOUT_MS / 60000} menit`)); }, TIMEOUT_MS);
+    const onAbort = () => { child.kill("SIGTERM"); setTimeout(() => child.kill("SIGKILL"), 5000).unref(); finish(reject, signal.reason); };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.on("error", (e) => finish(reject, e));
+    child.on("close", (code) => { line(buf);
+      if (final) { if (final.is_error) return finish(reject, new Error(String(final.result || "Claude error").slice(0, 300)));
+        return finish(resolve, { text: String(final.result ?? lastText), cost: final.total_cost_usd, turns: final.num_turns }); }
+      code === 0 && (lastText || raw.trim()) ? finish(resolve, { text: lastText || raw.trim() }) : finish(reject, new Error(`claude keluar kode ${code}: ${(err || raw).slice(0, 300)}`)); });
     child.stdin.end(prompt);
   });
 }

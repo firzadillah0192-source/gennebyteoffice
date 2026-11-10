@@ -136,6 +136,18 @@ function runBackup() {
 }
 async function backupTick() { const l = await latestBackup(); if (!l.count || Date.now() - Date.parse(l.at) > 24 * 3600000) await runBackup(); }
 setTimeout(backupTick, 20000); setInterval(backupTick, 3600000);
+// Rantai percakapan: tugas-tugas sebelumnya (paling lama dulu) yang menjadi konteks tugas lanjutan
+async function ancestors(id, max) {
+  const r = await db.query(`WITH RECURSIVE up AS (SELECT id, parent_id, instruction, result, state, 0 AS d FROM tasks WHERE id=(SELECT parent_id FROM tasks WHERE id=$1)
+    UNION ALL SELECT t.id, t.parent_id, t.instruction, t.result, t.state, up.d+1 FROM tasks t JOIN up ON t.id=up.parent_id WHERE up.d < $2)
+    SELECT id, instruction, result, state FROM up ORDER BY d DESC`,[id, max - 1]);
+  return r.rows.map((x) => ({ ...x, id: Number(x.id) }));
+}
+async function taskContext(id) {
+  const chain = await ancestors(id, 4); if (!chain.length) return "";
+  return "Ini lanjutan percakapan. Riwayat sebelumnya (paling lama dulu):\n" + chain.map((c) =>
+    `--- Tugas #${c.id} (${c.state})\nPemilik: ${String(c.instruction).slice(0, 800)}\nHasilmu: ${String(c.result ?? "(belum ada hasil)").slice(0, 1500)}`).join("\n");
+}
 const bearer = (req) => (req.headers.authorization||"").replace(/^Bearer /,"");
 const isAdmin = (req) => { const t=bearer(req); return !!t && eq(t,OFFICE_ADMIN_TOKEN); };
 async function botFrom(req){ const t=bearer(req); if(!t) return null;
@@ -371,12 +383,15 @@ http.createServer(async (req,res)=>{
       if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
       const b = await body(req); const ins = String(b.instruction??"").trim().slice(0,2000);
       if(!ins) return send(res,400,{error:"instruction kosong"});
-      const r = await db.query("INSERT INTO tasks(bot_id,instruction) SELECT id,$2 FROM bots WHERE id=$1 RETURNING id",[b.bot,ins]);
+      let parent = null;                                     // lanjutan percakapan: bot bawaan = bot tugas sebelumnya
+      if (b.parent_id != null) { parent = (await db.query("SELECT id,bot_id FROM tasks WHERE id=$1",[Number(b.parent_id)||0])).rows[0];
+        if (!parent) return send(res,404,{error:"tugas sebelumnya tidak ada (mungkin sudah terhapus)"}); }
+      const r = await db.query("INSERT INTO tasks(bot_id,instruction,parent_id) SELECT id,$2,$3 FROM bots WHERE id=$1 RETURNING id",[b.bot||parent?.bot_id,ins,parent?.id??null]);
       return r.rowCount ? send(res,200,{ok:true,task_id:Number(r.rows[0].id),version:await bump()}) : send(res,404,{error:"bot tidak ada"});
     }
     if (req.method==="GET" && p==="/api/tasks"){
       if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
-      const r = await db.query("SELECT id,bot_id,instruction,state,result,created_at,finished_at FROM tasks ORDER BY id DESC LIMIT 50");
+      const r = await db.query("SELECT id,bot_id,instruction,state,result,created_at,finished_at,parent_id,stop_requested_at FROM tasks ORDER BY id DESC LIMIT 50");
       return send(res,200,{tasks:r.rows});
     }
     if (req.method==="POST" && p==="/api/tasks/claim"){      // bot mengambil tugas berikutnya
@@ -384,20 +399,70 @@ http.createServer(async (req,res)=>{
       const r = await db.query(`UPDATE tasks SET state='running',started_at=now() WHERE id=(
         SELECT id FROM tasks WHERE bot_id=$1 AND state='queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
         RETURNING id,instruction`,[bot.id]);
-      return send(res,200,{task:r.rows[0]?{id:Number(r.rows[0].id),instruction:r.rows[0].instruction,standing:bot.standing||""}:null});
+      if (!r.rows[0]) return send(res,200,{task:null});
+      const id = Number(r.rows[0].id);
+      await db.query("INSERT INTO task_logs(task_id,kind,text) VALUES ($1,'system',$2)",[id,`diambil oleh ${bot.name}`]);
+      return send(res,200,{task:{id,instruction:r.rows[0].instruction,standing:bot.standing||"",context:await taskContext(id)}});
     }
     const f = p.match(/^\/api\/tasks\/(\d+)\/finish$/);
     if (req.method==="POST" && f){
       const bot = await botFrom(req); if(!bot) return send(res,401,{error:"token bot salah"});
       const b = await body(req);
       const r = await db.query("UPDATE tasks SET state=$3,result=$4,finished_at=now() WHERE id=$1 AND bot_id=$2 AND state='running'",
-        [f[1],bot.id,b.state==="failed"?"failed":"done",String(b.result??"").slice(0,4000)]);
+        [f[1],bot.id,["failed","stopped"].includes(b.state)?b.state:"done",String(b.result??"").slice(0,4000)]);
       return r.rowCount ? send(res,200,{ok:true,version:await bump()}) : send(res,404,{error:"tugas tidak ada / bukan running"});
+    }
+    // ---- kontrol tugas: log langkah, permintaan berhenti, detail + percakapan ----
+    const lg = p.match(/^\/api\/tasks\/(\d+)\/(log|control)$/);
+    if (req.method==="POST" && lg){                          // bot: tulis log langkah / cek apakah diminta berhenti
+      const bot = await botFrom(req); if(!bot) return send(res,401,{error:"token bot salah"});
+      const tk = (await db.query("SELECT state, stop_requested_at FROM tasks WHERE id=$1 AND bot_id=$2",[lg[1],bot.id])).rows[0];
+      if (!tk) return send(res,404,{error:"tugas tidak ada"});
+      const stop = !!tk.stop_requested_at || tk.state !== "running";
+      if (lg[2] === "log") {
+        const b = await body(req), text = String(b.text??"").trim().slice(0,2000), kind = ["step","tool","note"].includes(b.kind) ? b.kind : "step";
+        const n = (await db.query("SELECT count(*)::int AS n FROM task_logs WHERE task_id=$1",[lg[1]])).rows[0].n;
+        if (text && tk.state === "running" && n < 1000) await db.query("INSERT INTO task_logs(task_id,kind,text) VALUES ($1,$2,$3)",[lg[1],kind,text]);
+      }
+      return send(res,200,{ok:true,stop});
+    }
+    const st = p.match(/^\/api\/tasks\/(\d+)\/stop$/);
+    if (req.method==="POST" && st){                          // admin: hentikan tugas (antre -> langsung dibatalkan; berjalan -> minta worker berhenti)
+      if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
+      const tk = (await db.query("SELECT state, stop_requested_at FROM tasks WHERE id=$1",[st[1]])).rows[0];
+      if (!tk) return send(res,404,{error:"tugas tidak ada"});
+      if (tk.state === "queued") {
+        await db.query("UPDATE tasks SET state='cancelled', result='Dibatalkan oleh admin sebelum mulai', finished_at=now() WHERE id=$1 AND state='queued'",[st[1]]);
+      } else if (tk.state === "running" && !tk.stop_requested_at) {
+        await db.query("UPDATE tasks SET stop_requested_at=now() WHERE id=$1",[st[1]]);
+        await db.query("INSERT INTO task_logs(task_id,kind,text) VALUES ($1,'system','admin meminta berhenti; menunggu worker')",[st[1]]);
+      } else if (tk.state === "running" && Date.now() - Date.parse(tk.stop_requested_at) > 60000) {   // worker tidak merespons > 1 menit: tutup paksa di catatan
+        await db.query("UPDATE tasks SET state='stopped', result=COALESCE(result,'')||'Dihentikan paksa: worker tidak merespons permintaan berhenti. Proses di server mungkin masih berjalan sampai batas waktunya.', finished_at=now() WHERE id=$1 AND state='running'",[st[1]]);
+        await db.query("INSERT INTO task_logs(task_id,kind,text) VALUES ($1,'system','dihentikan paksa oleh admin')",[st[1]]);
+      } else if (tk.state === "running") return send(res,202,{ok:true,state:"stopping",note:"permintaan berhenti sudah dikirim; tombol paksa tersedia setelah 1 menit"});
+      else return send(res,409,{error:"tugas sudah selesai"});
+      pubCache.t = 0; const now = (await db.query("SELECT state FROM tasks WHERE id=$1",[st[1]])).rows[0].state;
+      return send(res,200,{ok:true,state:now==="running"?"stopping":now,version:await bump()});
+    }
+    const td = p.match(/^\/api\/tasks\/(\d+)$/);
+    if (req.method==="GET" && td){                           // admin: detail tugas + log (bertahap lewat ?after=) + rantai percakapan
+      if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
+      const t = (await db.query(`SELECT t.id,t.bot_id,b.name AS bot,b.room_id AS room,t.instruction,t.state,t.result,t.created_at,t.started_at,t.finished_at,t.parent_id,t.stop_requested_at,fb.name AS from_bot, ro.name AS routine
+        FROM tasks t JOIN bots b ON b.id=t.bot_id LEFT JOIN bots fb ON fb.id=t.from_bot LEFT JOIN routines ro ON ro.id=t.routine_id WHERE t.id=$1`,[td[1]])).rows[0];
+      if (!t) return send(res,404,{error:"tugas tidak ada"});
+      const after = Number(url.searchParams.get("after")) || 0;
+      const [logs, kids, chain] = await Promise.all([
+        db.query("SELECT id,kind,text,at FROM task_logs WHERE task_id=$1 AND id>$2 ORDER BY id LIMIT 500",[td[1],after]),
+        db.query("SELECT id,state FROM tasks WHERE parent_id=$1 ORDER BY id",[td[1]]),
+        ancestors(td[1], 10)]);
+      return send(res,200,{task:{...t,id:Number(t.id),parent_id:t.parent_id&&Number(t.parent_id)},
+        logs:logs.rows.map(l=>({...l,id:Number(l.id)})), children:kids.rows.map(k=>({id:Number(k.id),state:k.state})),
+        chain:chain.map(c=>({id:c.id,state:c.state,instruction:c.instruction,result:c.result}))});
     }
     if (req.method==="GET" && p==="/api/board"){             // semua tugas+hasil untuk satu ruangan (5 hari terakhir)
       if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
       const room = url.searchParams.get("room");
-      const r = await db.query(`SELECT t.id,t.bot_id,b.name AS bot,b.room_id AS room,t.instruction,t.state,t.result,t.created_at,t.finished_at,t.is_public,fb.name AS from_bot, ro.name AS routine
+      const r = await db.query(`SELECT t.id,t.bot_id,b.name AS bot,b.room_id AS room,t.instruction,t.state,t.result,t.created_at,t.finished_at,t.is_public,t.parent_id,fb.name AS from_bot, ro.name AS routine
         FROM tasks t JOIN bots b ON b.id=t.bot_id LEFT JOIN bots fb ON fb.id=t.from_bot LEFT JOIN routines ro ON ro.id=t.routine_id WHERE t.created_at > now() - make_interval(days => $1)
         AND ($2::text IS NULL OR $2='lobby' OR b.room_id=$2) ORDER BY t.id DESC LIMIT 200`,[RET,room]);
       return send(res,200,{retention_days:RET,tasks:r.rows.map(x=>({...x,id:Number(x.id)}))});
