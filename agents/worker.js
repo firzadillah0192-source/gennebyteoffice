@@ -1,7 +1,7 @@
 // Worker: tiap karyawan punya jalur sendiri (tidak saling menunggu). Mesin per bot: "router" (9router cx/) atau "claude" (Claude Code).
 import { runAgent } from "./loop.js"; import { ops, opsUrls, infraSnapshot } from "./ops.js"; import { ideator } from "./ideator.js";
 import { receptionist } from "./receptionist.js"; import { ledger } from "./ledger.js"; import { posty } from "./posty.js"; import { engineer } from "./engineer.js";
-import { makeFlow } from "./claude-flow.js";
+import { makeFlow } from "./claude-flow.js"; import { makeControl, Stopped } from "./task-control.js"; import { redact } from "./claude-engine.js";
 
 const API = `http://127.0.0.1:${process.env.OFFICE_PORT || 4100}`, ADMIN = process.env.OFFICE_ADMIN_TOKEN;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -51,7 +51,9 @@ async function patrol() {
 
 // ---- Satu jalur per bot ----
 async function handle(def, task) {
-  const report = (status, step) => call("/api/event", def.token, { status, step });
+  const ctl = makeControl({ call, token: def.token, taskId: task.id, redact: (t) => redact(t, def.cwd ? [def.cwd] : []) });
+  const report = (status, step) => { if (status === "working") ctl.log(step); return call("/api/event", def.token, { status, step }); };
+  task.prompt = task.context ? `${task.context}\n\nPesan baru dari pemilik: ${task.instruction}` : task.instruction;
   if (def.stub) {
     await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: def.note || "Belum diaktifkan: karyawan ini belum punya kemampuan kerja (tool). Minta admin membangunnya dulu; tugas ini tidak dijalankan." });
     console.log(`[${def.id}] tugas #${task.id} ditolak (belum aktif)`); return;
@@ -59,12 +61,13 @@ async function handle(def, task) {
   console.log(`[${def.id}] tugas #${task.id}: ${task.instruction}`);
   def.busy = true; await report("working", "mulai: " + task.instruction.slice(0, 60));
   try {
-    const result = def.engine === "claude" ? await handleClaude(def, task, report) : await runAgent({ def, instruction: task.instruction, report, standing: task.standing });
-    await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result });
+    const result = def.engine === "claude" ? await handleClaude(def, task, report, ctl) : await runAgent({ def, instruction: task.prompt, report, standing: task.standing, ctl });
+    await ctl.close(); await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result });
     await report("done", result.replace(/\s+/g, " ").slice(0, 80));
   } catch (e) {
-    await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message });
-    await report("error", e.message.slice(0, 80));
+    await ctl.close();
+    if (e instanceof Stopped || e?.name === "Stopped") { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "stopped", result: e.message }); await report("idle", "dihentikan admin"); }
+    else { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message }); await report("error", e.message.slice(0, 80)); }
   }
   await sleep(3000); def.busy = false; await report("idle", "menunggu tugas");
 }

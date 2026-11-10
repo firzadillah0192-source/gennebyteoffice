@@ -55,3 +55,13 @@ CREATE TABLE IF NOT EXISTS routines (
 );
 CREATE INDEX IF NOT EXISTS routines_due ON routines(enabled, next_run);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS routine_id BIGINT;
+-- Kontrol tugas dari web: lanjutan percakapan, permintaan berhenti, dan log langkah per tugas
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stop_requested_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
+CREATE TABLE IF NOT EXISTS task_logs (
+  id BIGSERIAL PRIMARY KEY, task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'step',                             -- step | tool | note | system
+  text TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS task_logs_task ON task_logs(task_id, id);

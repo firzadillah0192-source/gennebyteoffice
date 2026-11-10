@@ -48,3 +48,10 @@ Setiap karyawan bekerja sendiri berdasarkan **instruksi** yang ditetapkan pemili
 - **Rutinitas** (`routines`): nama + instruksi + interval (min. 1 jam, maks. 7 hari) + jam aktif WIB (bawaan 07–22). Penjadwal server membuat tugas biasa (`tasks.routine_id`) saat jatuh tempo; hasilnya tampil di papan ruangan dengan label "otomatis".
 - **Rem pengaman:** semua rutinitas contoh NONAKTIF sampai pemilik menyalakannya; batas harian tugas otomatis (bawaan 30); tombol "Otomatis" menjeda semuanya; satu rutinitas tidak menumpuk (dilewati bila masih antre/berjalan); maks. 5 rutinitas per karyawan; karyawan yang belum punya kemampuan kerja ditolak.
 - Diatur dari layar **Atur** pada kartu karyawan (admin). Tamu tidak melihat instruksi tetap maupun rutinitas.
+
+## Kontrol tugas dari web (tanpa SSH/Telegram)
+Setiap tugas punya layar **Detail** (tombol "Detail / balas" di papan, "Detail & log" di kartu karyawan; terbuka otomatis setelah mengirim tugas):
+- **Log langkah live**: `task_logs` diisi worker lewat `POST /api/tasks/:id/log` (langkah, tool yang dipakai, catatan AI). Mesin Claude memakai `--output-format stream-json` sehingga tiap tool Claude tampil saat terjadi. Teks disamarkan (`redact`) sebelum dikirim.
+- **Hentikan**: `POST /api/tasks/:id/stop` (admin). Antre → langsung `cancelled`. Berjalan → `stop_requested_at` diisi; worker mengecek tiap ~4 detik (`/control`), memutus panggilan AI / mematikan proses `claude`, lalu menutup tugas sebagai `stopped`. Bila worker tidak merespons > 1 menit, tombol "Hentikan paksa" menutup catatannya saja.
+- **Balas / lanjutkan**: `POST /api/tasks` dengan `parent_id` membuat tugas lanjutan untuk karyawan yang sama. Saat diambil, server mengirim `context` (maks. 4 tugas sebelumnya: instruksi + hasil) yang ditaruh worker di depan pesan baru.
+- Worker lama (VM lain) tetap jalan tanpa pembaruan: log dan stop hanya aktif setelah paket `dist/office-worker.tgz` terbaru dipasang.

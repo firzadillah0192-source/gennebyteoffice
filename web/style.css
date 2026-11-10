@@ -271,3 +271,30 @@ body.panel-open .rrow .rt small, body.panel-open .rrow .rt span { display:none; 
 .plain #board, .plain #ledger, .plain #cfg { transform:none !important; left:12px !important; right:12px !important; width:auto !important; }
 .plain #island { transform:none !important; left:340px !important; }
 .plain *, .plain *::before, .plain *::after { animation:none !important; transition:none !important; filter:none !important; }
+
+/* ===== Detail tugas: log live, hentikan, dan lanjutan percakapan ===== */
+#task { position:fixed; right:16px; top:64px; width:min(520px, calc(100vw - 32px)); max-height:calc(100vh - 90px); overflow:auto; z-index:7;
+  --card:#121726; --ink:#e8ebf2; --muted:#9aa4b8; --line:#2a3246; --accent:#4c9bff; color:var(--ink);
+  background:#0f1320; border:1px solid #232b3d; border-radius:14px; padding:14px 16px; box-shadow:0 10px 32px #0007; }
+#task button { background:#1a2133; border-color:#2a3246; color:var(--ink); }
+#task button.primary { background:var(--accent); border-color:var(--accent); color:#04122b; font-weight:600; }
+#task button.stop { color:#fff; background:var(--error); border-color:var(--error); font-weight:600; }
+#task .hd { display:flex; align-items:center; gap:8px; } #task .hd h2 { flex:1; margin:0; font-size:16px; }
+#task .meta { font-size:12px; color:var(--muted); margin:4px 0 8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+#task .chain { font-size:12px; color:var(--muted); border-left:2px solid var(--line); padding-left:8px; margin-bottom:8px; }
+#task .chain a, #task .kids a { color:var(--accent); cursor:pointer; }
+#task .chain .c { margin:4px 0; }
+#task .ins { font-weight:500; margin-bottom:8px; }
+#task .sec { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:10px 0 4px; }
+#task .log { background:#0a0e18; border:1px solid var(--line); border-radius:8px; padding:6px 8px; max-height:38vh; overflow:auto;
+  font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+#task .log div { display:flex; gap:8px; padding:1px 0; white-space:pre-wrap; word-break:break-word; }
+#task .log time { color:var(--muted); flex:none; }
+#task .log .tool span { color:#ffc145; } #task .log .note span { color:#c9d1e3; } #task .log .system span { color:var(--muted); font-style:italic; }
+#task .out { border-left:3px solid var(--done); padding-left:8px; font-size:13px; }
+#task .out.failed, #task .out.stopped { border-color:var(--error); }
+#task textarea { width:100%; min-height:56px; resize:vertical; background:#0a0e18; border:1px solid #2a3246; color:var(--ink); border-radius:8px; padding:8px 10px; font:inherit; }
+#task .reply { display:grid; gap:6px; margin-top:6px; }
+.badge.stopped { background:var(--idle); } #board .item.stopped { opacity:.7; }
+button.open { font-size:11px; padding:1px 8px; border-radius:99px; margin-left:6px; }
+@media (max-width:640px) { #task { left:8px; right:8px; width:auto; top:56px; } }

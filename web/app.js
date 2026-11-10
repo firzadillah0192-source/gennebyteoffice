@@ -158,6 +158,7 @@ function renderUI() {
 
 // ---- kartu karyawan bergaya acuan: header berwarna, status+durasi, langkah sekarang, statistik, riwayat ----
 const dur = (iso) => { if (!iso) return ""; const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000)); return m < 1 ? "baru saja" : m < 60 ? `${m} mnt` : m < 2880 ? `${Math.round(m / 60)} jam` : `${Math.round(m / 1440)} hari`; };
+const TSTATE = { queued: "antre", running: "dikerjakan", done: "selesai", failed: "gagal", cancelled: "dibatalkan", stopped: "dihentikan" };
 const STLABEL = { working: "Bekerja", idle: "Istirahat", waiting_user: "Menunggu Anda", error: "Error", done: "Selesai", offline: "Offline" };
 let statsAt = 0, statsFor = null, statsData = null;
 async function loadStats(botId, force) {
@@ -201,7 +202,7 @@ async function renderPanel() {
     if (!guest) $("p-send").onclick = async () => {
       const v = $("p-task").value.trim(); if (!v) return;
       const r = await fetch("/api/tasks", { method: "POST", headers: headers(), body: JSON.stringify({ bot: b.id, instruction: v }) });
-      $("p-task").value = ""; if (r.ok) { lastVersion = -1; poll(); loadTasks(b.id); }
+      $("p-task").value = ""; if (r.ok) { const j = await r.json(); lastVersion = -1; poll(); loadTasks(b.id); if (j.task_id) openTask(j.task_id); }
     };
     loadStats(b.id, true); if (!guest) loadTasks(b.id);
   } else loadStats(b.id);
@@ -212,8 +213,8 @@ async function loadTasks(botId) {
   const r = await fetch("/api/tasks", { headers: headers() }); if (!r.ok) return;
   const list = (await r.json()).tasks.filter((t) => t.bot_id === botId).slice(0, 3);
   const el = $("p-tasks"); if (!el) return;
-  const th = list.map((t) => `<div class="task"><b>${esc(t.state)}</b> · ${esc(plain(t.instruction))}${t.result ? `<div class="md">${md(t.result)}</div>` : ""}${t.state === "queued" ? ` <button class="cancel" data-cancel="${t.id}">Batalkan</button>` : ""}</div>`).join("");
-  if (setHTML(el, th)) el.querySelectorAll("[data-cancel]").forEach((c) => c.onclick = () => cancelTask(c.dataset.cancel));
+  const th = list.map((t) => `<div class="task"><b>${esc(TSTATE[t.state] || t.state)}</b> · ${esc(plain(t.instruction))}${t.result ? `<div class="md">${md(t.result)}</div>` : ""}<button class="open" data-open="${t.id}">Detail & log</button>${t.state === "queued" ? ` <button class="cancel" data-cancel="${t.id}">Batalkan</button>` : ""}</div>`).join("");
+  if (setHTML(el, th)) { el.querySelectorAll("[data-cancel]").forEach((c) => c.onclick = () => cancelTask(c.dataset.cancel)); el.querySelectorAll("[data-open]").forEach((c) => c.onclick = () => openTask(c.dataset.open)); }
 }
 setInterval(() => selected && loadTasks(selected), 5000);
 
@@ -231,7 +232,7 @@ const dayName = (iso) => { const d = new Date(iso), n = new Date(), y = new Date
   const same = (a, b) => a.toDateString() === b.toDateString();
   return same(d, n) ? "Hari ini" : same(d, y) ? "Kemarin" : d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" }); };
 const hm = (iso) => new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-const syncSheet = () => document.body.classList.toggle("sheet-open", !$("board").hidden || !$("ledger").hidden || !$("cfg").hidden);
+const syncSheet = () => document.body.classList.toggle("sheet-open", !$("board").hidden || !$("ledger").hidden || !$("cfg").hidden || !$("task").hidden);
 function closeBoard() { boardRoom = null; $("board").hidden = true; $("board").dataset.room = ""; syncSheet(); }
 $("btn-board").onclick = () => focusedRoom && openBoard(focusedRoom);
 async function openBoard(roomId) {
@@ -260,7 +261,7 @@ async function openBoard(roomId) {
     if (send) send.onclick = async () => {
       const v = $("b-text").value.trim(); if (!v) return;
       const r = await fetch("/api/tasks", { method: "POST", headers: headers(), body: JSON.stringify({ bot: $("b-bot").value, instruction: v }) });
-      if (r.ok) { $("b-text").value = ""; lastVersion = -1; poll(); }
+      if (r.ok) { const j = await r.json(); $("b-text").value = ""; lastVersion = -1; poll(); if (j.task_id) openTask(j.task_id); }
     };
   }
   refreshBoard();
@@ -275,14 +276,83 @@ async function refreshBoard() {
   let day = "", html = "";
   for (const t of d.tasks) {
     const dn = dayName(t.created_at); if (dn !== day) { day = dn; html += `<div class="day">${esc(dn)}</div>`; }
-    html += `<div class="item ${esc(t.state)}"><div class="meta"><b>${esc(t.bot)}</b>${t.from_bot ? ` ← dari ${esc(t.from_bot)}` : ""}${t.routine ? ` <span class="badge auto" title="Dijalankan otomatis oleh rutinitas">otomatis · ${esc(t.routine)}</span>` : ""} · ${hm(t.created_at)}<span class="badge ${esc(t.state)}">${esc({ queued: "antre", running: "dikerjakan", done: "selesai", failed: "gagal", cancelled: "dibatalkan" }[t.state] || t.state)}</span>${!guest && t.state === "queued" ? `<button class="cancel" data-cancel="${t.id}">Batalkan</button>` : ""}${guest ? "" : `<label class="pub"><input type="checkbox" data-pub="${t.id}" ${t.is_public ? "checked" : ""}> tampil ke tamu</label>`}</div>
+    html += `<div class="item ${esc(t.state)}"><div class="meta"><b>${esc(t.bot)}</b>${t.from_bot ? ` ← dari ${esc(t.from_bot)}` : ""}${t.routine ? ` <span class="badge auto" title="Dijalankan otomatis oleh rutinitas">otomatis · ${esc(t.routine)}</span>` : ""} · ${hm(t.created_at)}${t.parent_id ? ` <span title="Lanjutan dari tugas #${t.parent_id}">↳ lanjutan #${t.parent_id}</span>` : ""}<span class="badge ${esc(t.state)}">${esc(TSTATE[t.state] || t.state)}</span>${!guest && t.state === "queued" ? `<button class="cancel" data-cancel="${t.id}">Batalkan</button>` : ""}${guest ? "" : `<button class="open" data-open="${t.id}">${t.state === "running" ? "Lihat live" : "Detail / balas"}</button>`}${guest ? "" : `<label class="pub"><input type="checkbox" data-pub="${t.id}" ${t.is_public ? "checked" : ""}> tampil ke tamu</label>`}</div>
       <div class="md ins">${md(t.instruction)}</div>${t.result ? `<div class="out md">${md(t.result)}</div>` : ""}</div>`;
   }
   if (!setHTML(list, html || "<small>Belum ada tugas dalam 5 hari terakhir.</small>")) return;
   list.querySelectorAll("[data-cancel]").forEach((c) => c.onclick = () => cancelTask(c.dataset.cancel));
+  list.querySelectorAll("[data-open]").forEach((c) => c.onclick = () => openTask(c.dataset.open));
   list.querySelectorAll("[data-pub]").forEach((c) => c.onchange = async () => {
     await fetch(`/api/tasks/${c.dataset.pub}/public`, { method: "POST", headers: headers(), body: JSON.stringify({ public: c.checked }) }); lastVersion = -1; poll();
   });
+}
+
+// ---------- detail tugas: log langkah live, hentikan, dan lanjutan percakapan (khusus admin) ----------
+const OPEN_STATES = new Set(["queued", "running"]);
+let taskId = null, taskLogAfter = 0, taskTimer = null, taskKey = "";
+function closeTask() { taskId = null; clearTimeout(taskTimer); $("task").hidden = true; $("task").dataset.id = ""; syncSheet(); }
+async function openTask(id) {
+  if (guest) return;
+  id = Number(id); taskId = id; taskLogAfter = 0; taskKey = ""; clearTimeout(taskTimer);
+  const el = $("task"); el.hidden = false; el.dataset.id = id; syncSheet();
+  el.innerHTML = `<div class="hd"><h2>Tugas #${id}</h2><button id="t-close">Tutup</button></div>
+    <div id="t-meta" class="meta"></div><div id="t-chain" class="chain" hidden></div>
+    <div id="t-ins" class="md ins"></div><div id="t-ctl"></div>
+    <div class="sec">Log langkah</div><div id="t-log" class="log"><small>Belum ada langkah.</small></div>
+    <div id="t-out-sec" class="sec" hidden>Hasil</div><div id="t-out" class="out md" hidden></div><div id="t-kids" class="kids"></div>
+    <div class="sec">Balas / lanjutkan</div>
+    <div class="reply"><textarea id="t-reply" placeholder="Mis. &quot;lanjutkan&quot;, &quot;bukan itu, coba cek file X&quot;, atau perintah berikutnya…"></textarea>
+      <button class="primary" id="t-send">Kirim lanjutan</button><small id="t-note" style="color:var(--muted)"></small></div>`;
+  $("t-close").onclick = closeTask;
+  $("t-reply").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("t-send").click(); });
+  $("t-send").onclick = async () => {
+    const v = $("t-reply").value.trim(); if (!v) return;
+    const r = await fetch("/api/tasks", { method: "POST", headers: headers(), body: JSON.stringify({ parent_id: id, instruction: v }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { $("t-note").textContent = j.error || "Gagal mengirim"; return; }
+    lastVersion = -1; poll(); refreshBoard(); openTask(j.task_id);
+  };
+  refreshTask();
+}
+async function refreshTask() {
+  const id = taskId; if (!id) return;
+  clearTimeout(taskTimer);
+  const r = await fetch(`/api/tasks/${id}?after=${taskLogAfter}`, { headers: headers() }).catch(() => null);
+  if (id !== taskId) return;
+  if (!r || !r.ok) { $("t-meta").textContent = r?.status === 404 ? "Tugas tidak ditemukan (mungkin sudah terhapus)." : "Gagal memuat, mencoba lagi…"; if (r?.status !== 404) taskTimer = setTimeout(refreshTask, 4000); return; }
+  const d = await r.json(), t = d.task;
+  const stopAge = t.stop_requested_at ? Date.now() - Date.parse(t.stop_requested_at) : 0;
+  const key = JSON.stringify([t.state, t.result, t.stop_requested_at, d.children, Math.floor(stopAge / 60000) > 0]);
+  if (key !== taskKey) {
+    taskKey = key;
+    setHTML($("t-meta"), `<b>${esc(t.bot)}</b>${t.from_bot ? ` ← dari ${esc(t.from_bot)}` : ""}${t.routine ? ` <span class="badge auto">otomatis · ${esc(t.routine)}</span>` : ""}
+      <span class="badge ${esc(t.state)}">${esc(TSTATE[t.state] || t.state)}</span> dibuat ${hm(t.created_at)}${t.started_at ? ` · mulai ${hm(t.started_at)}` : ""}${t.finished_at ? ` · selesai ${hm(t.finished_at)}` : ""}`);
+    const ch = $("t-chain"); ch.hidden = !d.chain.length;
+    setHTML(ch, d.chain.length ? `Lanjutan dari percakapan:` + d.chain.map((c) => `<div class="c"><a data-go="${c.id}">#${c.id}</a> ${esc(plain(c.instruction).slice(0, 120))}</div>`).join("") : "");
+    ch.querySelectorAll("[data-go]").forEach((a) => a.onclick = () => openTask(a.dataset.go));
+    setHTML($("t-ins"), md(t.instruction));
+    let ctl = "";
+    if (t.state === "queued") ctl = `<button class="stop" id="t-stop">Batalkan</button>`;
+    else if (t.state === "running" && !t.stop_requested_at) ctl = `<button class="stop" id="t-stop">Hentikan</button>`;
+    else if (t.state === "running") ctl = stopAge > 60000 ? `<small>Worker belum merespons.</small> <button class="stop" id="t-stop">Hentikan paksa</button>` : `<small>Menunggu worker berhenti…</small>`;
+    setHTML($("t-ctl"), ctl);
+    $("t-stop")?.addEventListener("click", async () => {
+      if (!confirm(t.state === "queued" ? `Batalkan tugas #${id}?` : `Hentikan tugas #${id}? Langkah yang sudah terjadi tidak dibatalkan.`)) return;
+      const rr = await fetch(`/api/tasks/${id}/stop`, { method: "POST", headers: headers() }); const jj = await rr.json().catch(() => ({}));
+      if (!rr.ok) alert(jj.error || "Gagal menghentikan"); else if (jj.note) $("t-note").textContent = jj.note;
+      taskKey = ""; lastVersion = -1; poll(); refreshBoard(); if (selected) loadTasks(selected); refreshTask();
+    });
+    const out = $("t-out"); out.hidden = $("t-out-sec").hidden = !t.result; out.className = `out md ${t.state}`; setHTML(out, t.result ? md(t.result) : "");
+    setHTML($("t-kids"), d.children.length ? `<div class="sec">Dilanjutkan di</div>` + d.children.map((k) => `<a data-go="${k.id}">#${k.id}</a> (${esc(TSTATE[k.state] || k.state)})`).join(" · ") : "");
+    $("t-kids").querySelectorAll("[data-go]").forEach((a) => a.onclick = () => openTask(a.dataset.go));
+  }
+  if (d.logs.length) {
+    const log = $("t-log"), stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    if (!taskLogAfter) log.innerHTML = "";
+    log.insertAdjacentHTML("beforeend", d.logs.map((l) => `<div class="${esc(l.kind)}"><time>${hm(l.at)}</time><span>${esc(l.text)}</span></div>`).join(""));
+    taskLogAfter = d.logs.at(-1).id; if (stick) log.scrollTop = log.scrollHeight;
+  }
+  taskTimer = setTimeout(refreshTask, OPEN_STATES.has(t.state) ? 2000 : 15000);
 }
 
 // ---------- Pembukuan & cadangan (khusus admin; tamu tidak punya tombol dan server menolak tanpa token) ----------
@@ -390,7 +460,7 @@ renderer.domElement.addEventListener("click", (e) => {
   else if (h.bot) { const b = state.bots[h.bot]; if (b.room !== focusedRoom) focusRoom(b.room); select(h.bot); }
   else if (h.room) { if (h.room !== focusedRoom) focusRoom(h.room); select(null); }
 });
-addEventListener("keydown", (e) => { if (e.key === "Escape") { if (!$("cfg").hidden) closeCfg(); else if (!$("ledger").hidden) closeLedger(); else if (boardRoom) closeBoard(); else { focusRoom(null); select(null); } } });
+addEventListener("keydown", (e) => { if (e.key === "Escape") { if (!$("task").hidden) closeTask(); else if (!$("cfg").hidden) closeCfg(); else if (!$("ledger").hidden) closeLedger(); else if (boardRoom) closeBoard(); else { focusRoom(null); select(null); } } });
 
 // ---------- loop ----------
 const clock = new THREE.Clock(); let t = 0, qSlow = 0, qAcc = 0, qN = 0, qStep = 0, fpsNow = 0, fpsF = 0, fpsT = performance.now();
