@@ -1,6 +1,6 @@
 // Worker: tiap karyawan punya jalur sendiri (tidak saling menunggu). Mesin per bot: "router" (9router cx/) atau "claude" (Claude Code).
 import { runAgent } from "./loop.js"; import { ops, opsUrls, infraSnapshot } from "./ops.js"; import { ideator } from "./ideator.js";
-import { receptionist } from "./receptionist.js"; import { ledger } from "./ledger.js"; import { posty } from "./posty.js"; import { engineer } from "./engineer.js";
+import { receptionist } from "./receptionist.js"; import { ledger } from "./ledger.js"; import { posty } from "./posty.js"; import { engineer } from "./engineer.js"; import { operator } from "./operator.js";
 import { makeFlow } from "./claude-flow.js"; import { makeControl, Stopped } from "./task-control.js"; import { redact } from "./claude-engine.js";
 
 const API = `http://127.0.0.1:${process.env.OFFICE_PORT || 4100}`, ADMIN = process.env.OFFICE_ADMIN_TOKEN;
@@ -12,7 +12,7 @@ const { handleClaude } = makeFlow({ call, getJson });
 
 // Karyawan yang belum punya tool kerja: menolak tugas dengan jelas (tanpa panggilan AI) supaya tidak mengantre selamanya.
 const stubs = ["clipper-bot"].map((id) => ({ id, tools: [], stub: true }));
-const defs = [ops, ideator, receptionist, engineer, ledger, posty, ...stubs];
+const defs = [ops, ideator, receptionist, engineer, operator, ledger, posty, ...stubs];
 
 for (const def of defs) {                                  // token bot dibuat ulang tiap worker start, hanya di memori
   def.token = (await call(`/api/bots/${def.id}/token`, ADMIN)).token;

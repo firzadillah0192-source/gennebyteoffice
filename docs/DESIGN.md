@@ -55,3 +55,10 @@ Setiap tugas punya layar **Detail** (tombol "Detail / balas" di papan, "Detail &
 - **Hentikan**: `POST /api/tasks/:id/stop` (admin). Antre → langsung `cancelled`. Berjalan → `stop_requested_at` diisi; worker mengecek tiap ~4 detik (`/control`), memutus panggilan AI / mematikan proses `claude`, lalu menutup tugas sebagai `stopped`. Bila worker tidak merespons > 1 menit, tombol "Hentikan paksa" menutup catatannya saja.
 - **Balas / lanjutkan**: `POST /api/tasks` dengan `parent_id` membuat tugas lanjutan untuk karyawan yang sama. Saat diambil, server mengirim `context` (maks. 4 tugas sebelumnya: instruksi + hasil) yang ditaruh worker di depan pesan baru.
 - Worker lama (VM lain) tetap jalan tanpa pembaruan: log dan stop hanya aktif setelah paket `dist/office-worker.tgz` terbaru dipasang.
+
+## Operator (pengganti SSH/Telegram)
+Karyawan `operator-bot` di ruang Director, mesin Claude Code, folder kerja `OPERATOR_WORKDIR` (bawaan: home user).
+- **Tahap baca** (tanpa persetujuan): baca berkas, git, `systemctl --user status`, `journalctl`, `docker ps/logs`, `df`, `free`, dan sejenisnya. Cocok untuk "cek kenapa SocialHub lambat", "lihat log worker 1 jam terakhir".
+- **Tahap ubah**: bila perlu mengubah sesuatu, Operator menulis `RENCANA_PERUBAHAN` → muncul di antrean persetujuan Director ("Jalankan di server: …"). Setelah disetujui, rencana dijalankan **langsung di folder kerja** (bukan cabang terpisah) dengan Bash penuh, tetap dibatasi daftar DENY (rahasia, rm, curl, ssh, sudo, dst.) dan `writeDeny` Operator (reset --hard, force push, prune, reboot).
+- Restart service Office sendiri dijadwalkan lewat `systemd-run --user --on-active=20s` agar tidak memutus tugas yang sedang berjalan.
+- Percakapan lanjutan, log live, dan tombol Hentikan memakai fitur Kontrol tugas di atas.
