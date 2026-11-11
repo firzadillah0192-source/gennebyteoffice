@@ -65,3 +65,12 @@ CREATE TABLE IF NOT EXISTS task_logs (
   text TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS task_logs_task ON task_logs(task_id, id);
+-- Chat langsung ke agent: satu sesi = satu percakapan berkelanjutan (sesi Claude dilanjutkan dengan --resume)
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id BIGSERIAL PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '', claude_session TEXT, closed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS chat_sessions_bot ON chat_sessions(bot_id, closed, id DESC);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS chat_session_id BIGINT REFERENCES chat_sessions(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS tasks_chat ON tasks(chat_session_id, id);

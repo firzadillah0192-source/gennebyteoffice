@@ -398,11 +398,13 @@ http.createServer(async (req,res)=>{
       const bot = await botFrom(req); if(!bot) return send(res,401,{error:"token bot salah"});
       const r = await db.query(`UPDATE tasks SET state='running',started_at=now() WHERE id=(
         SELECT id FROM tasks WHERE bot_id=$1 AND state='queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
-        RETURNING id,instruction`,[bot.id]);
+        RETURNING id,instruction,chat_session_id`,[bot.id]);
       if (!r.rows[0]) return send(res,200,{task:null});
       const id = Number(r.rows[0].id);
       await db.query("INSERT INTO task_logs(task_id,kind,text) VALUES ($1,'system',$2)",[id,`diambil oleh ${bot.name}`]);
-      return send(res,200,{task:{id,instruction:r.rows[0].instruction,standing:bot.standing||"",context:await taskContext(id)}});
+      const cs = r.rows[0].chat_session_id ? (await db.query("SELECT id, claude_session FROM chat_sessions WHERE id=$1",[r.rows[0].chat_session_id])).rows[0] : null;
+      return send(res,200,{task:{id,instruction:r.rows[0].instruction,standing:bot.standing||"",context:await taskContext(id),
+        chat_session:cs?Number(cs.id):null, claude_session:cs?.claude_session||null}});
     }
     const f = p.match(/^\/api\/tasks\/(\d+)\/finish$/);
     if (req.method==="POST" && f){
@@ -410,6 +412,8 @@ http.createServer(async (req,res)=>{
       const b = await body(req);
       const r = await db.query("UPDATE tasks SET state=$3,result=$4,finished_at=now() WHERE id=$1 AND bot_id=$2 AND state='running'",
         [f[1],bot.id,["failed","stopped"].includes(b.state)?b.state:"done",String(b.result??"").slice(0,4000)]);
+      if (r.rowCount && typeof b.session_id === "string" && /^[\w-]{8,80}$/.test(b.session_id))
+        await db.query("UPDATE chat_sessions SET claude_session=$2, last_at=now() WHERE id=(SELECT chat_session_id FROM tasks WHERE id=$1)",[f[1],b.session_id]);
       return r.rowCount ? send(res,200,{ok:true,version:await bump()}) : send(res,404,{error:"tugas tidak ada / bukan running"});
     }
     // ---- kontrol tugas: log langkah, permintaan berhenti, detail + percakapan ----
@@ -458,6 +462,73 @@ http.createServer(async (req,res)=>{
       return send(res,200,{task:{...t,id:Number(t.id),parent_id:t.parent_id&&Number(t.parent_id)},
         logs:logs.rows.map(l=>({...l,id:Number(l.id)})), children:kids.rows.map(k=>({id:Number(k.id),state:k.state})),
         chain:chain.map(c=>({id:c.id,state:c.state,instruction:c.instruction,result:c.result}))});
+    }
+    // ---- chat langsung ke agent (satu percakapan berkelanjutan per sesi) ----
+    const ch = p.match(/^\/api\/chat\/([\w-]+)(?:\/(send|new|stream|close))?$/);
+    if (ch) {
+      if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});
+      const botRow = (await db.query("SELECT id,name,role,room_id AS room,status,step,remote,last_seen FROM bots WHERE id=$1",[ch[1]])).rows[0];
+      if (!botRow) return send(res,404,{error:"bot tidak ada"});
+      if (INACTIVE_BOTS.has(botRow.id)) return send(res,400,{error:"karyawan ini belum punya kemampuan kerja"});
+      const wanted = Number(url.searchParams.get("session")) || null;
+      const current = async (create) => {
+        let s = wanted ? (await db.query("SELECT * FROM chat_sessions WHERE id=$1 AND bot_id=$2",[wanted,botRow.id])).rows[0]
+                       : (await db.query("SELECT * FROM chat_sessions WHERE bot_id=$1 AND NOT closed ORDER BY last_at DESC LIMIT 1",[botRow.id])).rows[0];
+        if (!s && create) s = (await db.query("INSERT INTO chat_sessions(bot_id) VALUES ($1) RETURNING *",[botRow.id])).rows[0];
+        return s;
+      };
+      if (req.method==="POST" && ch[2]==="new") {
+        const s = (await db.query("INSERT INTO chat_sessions(bot_id) VALUES ($1) RETURNING id",[botRow.id])).rows[0];
+        return send(res,200,{ok:true,session:Number(s.id)});
+      }
+      if (req.method==="POST" && ch[2]==="close") {             // sembunyikan percakapan dari daftar (riwayat tetap di database)
+        const r = await db.query("UPDATE chat_sessions SET closed=true WHERE id=$1 AND bot_id=$2",[wanted,botRow.id]);
+        return r.rowCount ? send(res,200,{ok:true}) : send(res,404,{error:"percakapan tidak ada"});
+      }
+      if (req.method==="POST" && ch[2]==="send") {
+        const b = await body(req), text = String(b.text??"").trim().slice(0,4000);
+        if (!text) return send(res,400,{error:"pesan kosong"});
+        const s = url.searchParams.get("new") === "1" ? (await db.query("INSERT INTO chat_sessions(bot_id) VALUES ($1) RETURNING *",[botRow.id])).rows[0] : await current(true);
+        const last = (await db.query("SELECT id FROM tasks WHERE chat_session_id=$1 ORDER BY id DESC LIMIT 1",[s.id])).rows[0];
+        const t = await db.query("INSERT INTO tasks(bot_id,instruction,parent_id,chat_session_id) VALUES ($1,$2,$3,$4) RETURNING id",[botRow.id,text,last?.id??null,s.id]);
+        await db.query("UPDATE chat_sessions SET last_at=now(), title=CASE WHEN title='' THEN $2 ELSE title END WHERE id=$1",[s.id,text.slice(0,60)]);
+        return send(res,200,{ok:true,session:Number(s.id),task_id:Number(t.rows[0].id),version:await bump()});
+      }
+      const s = await current(false);
+      if (req.method==="GET" && !ch[2]) {                    // riwayat: sesi + pesan (tugas) + log masing-masing
+        const sessions = (await db.query(`SELECT c.id,c.title,c.created_at,c.last_at, EXISTS(SELECT 1 FROM tasks t WHERE t.chat_session_id=c.id AND t.state IN ('queued','running')) AS busy
+          FROM chat_sessions c WHERE c.bot_id=$1 AND NOT c.closed ORDER BY c.last_at DESC LIMIT 30`,[botRow.id])).rows.map(x=>({...x,id:Number(x.id)}));
+        if (!s) return send(res,200,{bot:botRow,session:null,sessions,messages:[],last_log:0});
+        const tk = (await db.query("SELECT id,instruction,state,result,created_at,started_at,finished_at,stop_requested_at FROM tasks WHERE chat_session_id=$1 ORDER BY id DESC LIMIT 60",[s.id])).rows.reverse();
+        const ids = tk.map(t=>t.id);
+        const logs = ids.length ? (await db.query("SELECT id,task_id,kind,text,at FROM task_logs WHERE task_id = ANY($1::bigint[]) ORDER BY id",[ids])).rows : [];
+        return send(res,200,{bot:botRow,session:{id:Number(s.id),title:s.title,created_at:s.created_at,resumable:!!s.claude_session},sessions,
+          messages:tk.map(t=>({...t,id:Number(t.id),logs:logs.filter(l=>l.task_id===t.id).map(l=>({id:Number(l.id),kind:l.kind,text:l.text,at:l.at}))})),
+          last_log:logs.length?Number(logs.at(-1).id):0});
+      }
+      if (req.method==="GET" && ch[2]==="stream") {          // aliran langsung (NDJSON): log baru + perubahan status pesan, sampai 10 menit
+        if (!s) return send(res,404,{error:"belum ada sesi"});
+        res.writeHead(200,{"content-type":"application/x-ndjson","cache-control":"no-store","x-accel-buffering":"no"});
+        let afterLog = Number(url.searchParams.get("after")) || 0, seen = new Map(), alive = true, botKey = "";
+        req.on("close",()=>{ alive = false; });
+        const until = Date.now() + 600000;
+        while (alive && Date.now() < until) {
+          const [tk, lg, bt] = await Promise.all([
+            db.query("SELECT id,instruction,state,result,created_at,started_at,finished_at,stop_requested_at FROM tasks WHERE chat_session_id=$1 ORDER BY id DESC LIMIT 60",[s.id]),
+            db.query("SELECT l.id,l.task_id,l.kind,l.text,l.at FROM task_logs l JOIN tasks t ON t.id=l.task_id WHERE t.chat_session_id=$1 AND l.id>$2 ORDER BY l.id LIMIT 300",[s.id,afterLog]),
+            db.query("SELECT status,step,last_seen FROM bots WHERE id=$1",[botRow.id])]);
+          const out = [];
+          for (const t of tk.rows.reverse()) { const k = `${t.state}|${t.stop_requested_at}|${(t.result||"").length}`;
+            if (seen.get(t.id) !== k) { seen.set(t.id,k); out.push({t:"msg",msg:{...t,id:Number(t.id)}}); } }
+          for (const l of lg.rows) { out.push({t:"log",task_id:Number(l.task_id),log:{id:Number(l.id),kind:l.kind,text:l.text,at:l.at}}); afterLog = Number(l.id); }
+          const bk = JSON.stringify(bt.rows[0]); if (bk !== botKey) { botKey = bk; out.push({t:"bot",bot:bt.rows[0]}); }
+          out.push({t:"ping"});
+          if (!res.write(out.map(o=>JSON.stringify(o)).join("\n")+"\n")) await new Promise(r=>res.once("drain",r));
+          await new Promise(r=>setTimeout(r,700));
+        }
+        return res.end();
+      }
+      return send(res,405,{error:"metode tidak didukung"});
     }
     if (req.method==="GET" && p==="/api/board"){             // semua tugas+hasil untuk satu ruangan (5 hari terakhir)
       if(!isAdmin(req)) return send(res,401,{error:"butuh token admin"});

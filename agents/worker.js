@@ -53,7 +53,8 @@ async function patrol() {
 async function handle(def, task) {
   const ctl = makeControl({ call, token: def.token, taskId: task.id, redact: (t) => redact(t, def.cwd ? [def.cwd] : []) });
   const report = (status, step) => { if (status === "working") ctl.log(step); return call("/api/event", def.token, { status, step }); };
-  task.prompt = task.context ? `${task.context}\n\nPesan baru dari pemilik: ${task.instruction}` : task.instruction;
+  const remembers = def.engine === "claude" && task.claude_session;              // sesi Claude dilanjutkan: riwayat sudah diingat
+  task.prompt = task.context && !remembers ? `${task.context}\n\nPesan baru dari pemilik: ${task.instruction}` : task.instruction;
   if (def.stub) {
     await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: def.note || "Belum diaktifkan: karyawan ini belum punya kemampuan kerja (tool). Minta admin membangunnya dulu; tugas ini tidak dijalankan." });
     ctl.close(); console.log(`[${def.id}] tugas #${task.id} ditolak (belum aktif)`); return;
@@ -62,12 +63,12 @@ async function handle(def, task) {
   def.busy = true; await report("working", "mulai: " + task.instruction.slice(0, 60));
   try {
     const result = def.engine === "claude" ? await handleClaude(def, task, report, ctl) : await runAgent({ def, instruction: task.prompt, report, standing: task.standing, ctl });
-    await ctl.close(); await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result });
+    await ctl.close(); await call(`/api/tasks/${task.id}/finish`, def.token, { state: "done", result, session_id: task.claude_session_out });
     await report("done", result.replace(/\s+/g, " ").slice(0, 80));
   } catch (e) {
     await ctl.close();
-    if (e instanceof Stopped || e?.name === "Stopped") { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "stopped", result: e.message }); await report("idle", "dihentikan admin"); }
-    else { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message }); await report("error", e.message.slice(0, 80)); }
+    if (e instanceof Stopped || e?.name === "Stopped") { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "stopped", result: e.message, session_id: task.claude_session_out }); await report("idle", "dihentikan admin"); }
+    else { await call(`/api/tasks/${task.id}/finish`, def.token, { state: "failed", result: e.message, session_id: task.claude_session_out }); await report("error", e.message.slice(0, 80)); }
   }
   await sleep(3000); def.busy = false; await report("idle", "menunggu tugas");
 }
