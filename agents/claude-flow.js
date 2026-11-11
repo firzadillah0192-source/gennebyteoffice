@@ -22,10 +22,15 @@ async function waitApproval(def, id, ctl) {
       const findings = (await redact(inv.text.replace(/RENCANA_PERUBAHAN:[\s\S]*$/, "").trim(), dirs)) || "(tanpa temuan tertulis)";
       if (!m || !def.canWrite) return findings;
       const plan = (await redact(m[1].trim(), dirs)).slice(0, 3000);
-      const ap = await call("/api/approval", def.token, { action: `Ubah kode: ${task.instruction.slice(0, 90)}`, detail: { plan, task: task.id } });
+      const ap = await call("/api/approval", def.token, { action: `${def.inPlace ? "Jalankan di server" : "Ubah kode"}: ${task.instruction.slice(0, 90)}`, detail: { plan, task: task.id } });
       await ctl?.log(`menunggu persetujuan #${ap.approval_id} di ruang Director`, "note");
       const decision = await waitApproval(def, ap.approval_id, ctl);
       if (decision !== "approved") return `${findings}\n\nRencana perubahan ${decision === "rejected" ? "DITOLAK" : "kedaluwarsa"}; tidak ada yang diubah.`;
+      if (def.inPlace) {                                   // Operator: dijalankan langsung di folder kerja setelah disetujui
+        await report("working", "menjalankan rencana yang disetujui");
+        const ex = await runClaude({ cwd: def.cwd, system: def.role + standingBlock(task.standing), prompt: `Tugas: ${ask}\n\nTahap sekarang: EKSEKUSI. Jalankan HANYA rencana yang telah disetujui ini, lalu verifikasi dan laporkan:\n\n${plan}`, tools: def.writeTools, allow: def.writeAllow, deny: def.writeDeny || [], ...live });
+        return (await redact(`${findings}\n\n— Eksekusi (disetujui) —\n${ex.text}`, dirs)).slice(0, 3900);
+      }
       await report("working", "mengubah kode di cabang terpisah");
       const wt = await makeWorktree(def.cwd, task.id);
       const ex = await runClaude({ cwd: wt.dir, system: def.role + standingBlock(task.standing), prompt: `Tugas: ${ask}\n\nTahap sekarang: EKSEKUSI. Kerjakan HANYA rencana yang telah disetujui ini, lalu verifikasi dan laporkan:\n\n${plan}`, tools: def.writeTools, allow: def.writeAllow, ...live });

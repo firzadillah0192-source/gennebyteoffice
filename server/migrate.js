@@ -33,10 +33,12 @@ const bots = [
  ["engineer-gennexbyte","Gennexbyte Engineer","Engineer platform Gennexbyte: diagnosis & perbaikan (butuh worker di VM-nya)","gennexbyte","#F5842D","triangle","glasses"],
  ["receptionist-bot","Resepsionis","Resepsionis: menjawab pertanyaan tentang seluruh Gennexbyte","lobby","#FF6FA8","rounded_square","bow"],
  ["ideator-bot","Ideator","Peneliti produk: brainstorming & memvalidasi ide aplikasi baru","other-apps","#FFC145","star6"],
+ ["operator-bot","Operator","Operator server: tanya & suruh apa saja di VM Office dari web (Claude Code; perubahan lewat persetujuan)","director","#22C3B5","hexagon","glasses"],
  ["ops-bot","Ops","Pemantau platform: patroli uptime tiap 3 jam, menyelidiki bila ada yang bermasalah","gennexbyte","#8A5CF5","hexagon"]];
 for (const [id,name,role,room,color,shape,acc] of bots) await c.query(
  `INSERT INTO bots(id,name,role,room_id,look) VALUES ($1,$2,$3,$4,$5)
   ON CONFLICT (id) DO UPDATE SET name=$2,role=$3,room_id=$4`, [id,name,role,room,JSON.stringify({color,shape,accessory:acc||"none"})]);
+await c.query("UPDATE bots SET backend='claude' WHERE id='operator-bot'");
 await c.query("UPDATE bots SET remote=true WHERE id IN ('engineer-nxbooth','engineer-nxchat','engineer-gennexbyte')");
 await c.query("UPDATE bots SET step='menunggu worker di VM-nya' WHERE remote AND last_seen IS NULL");
 // Contoh rutinitas (NONAKTIF): pemilik yang menyalakan. Hanya ditambahkan bila belum ada rutinitas dengan nama itu.
