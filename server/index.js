@@ -488,7 +488,7 @@ http.createServer(async (req,res)=>{
       if (req.method==="POST" && ch[2]==="send") {
         const b = await body(req), text = String(b.text??"").trim().slice(0,4000);
         if (!text) return send(res,400,{error:"pesan kosong"});
-        const s = await current(true);
+        const s = url.searchParams.get("new") === "1" ? (await db.query("INSERT INTO chat_sessions(bot_id) VALUES ($1) RETURNING *",[botRow.id])).rows[0] : await current(true);
         const last = (await db.query("SELECT id FROM tasks WHERE chat_session_id=$1 ORDER BY id DESC LIMIT 1",[s.id])).rows[0];
         const t = await db.query("INSERT INTO tasks(bot_id,instruction,parent_id,chat_session_id) VALUES ($1,$2,$3,$4) RETURNING id",[botRow.id,text,last?.id??null,s.id]);
         await db.query("UPDATE chat_sessions SET last_at=now(), title=CASE WHEN title='' THEN $2 ELSE title END WHERE id=$1",[s.id,text.slice(0,60)]);
