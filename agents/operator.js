@@ -3,7 +3,10 @@
 // hanya dijalankan setelah rencananya disetujui di ruang Director, langsung di folder kerja (bukan cabang terpisah).
 import os from "node:os";
 const HOME = os.homedir();
-const READ_CMDS = ["ls", "pwd", "whoami", "hostname", "uptime", "date", "df", "du", "free", "ps", "top -bn1", "head", "tail", "wc", "grep", "find", "stat", "file",
+// Hanya perintah yang tidak bisa mengubah/menghapus apa pun lewat argumen tambahan. Sengaja TIDAK ada find (-delete/-exec)
+// maupun head/tail/grep/wc (bisa membaca .env lewat Bash): untuk mencari & membaca berkas pakai tool Read/Grep/Glob,
+// yang tunduk pada aturan DENY rahasia.
+const READ_CMDS = ["ls", "pwd", "whoami", "hostname", "uptime", "date", "df", "du", "free", "ps", "top -bn1",
   "git status", "git log", "git diff", "git show", "git branch", "git remote -v", "git fetch",
   "systemctl --user status", "systemctl --user list-units", "systemctl --user is-active", "systemctl status", "systemctl is-active", "journalctl",
   "docker ps", "docker logs", "docker compose ps", "docker compose logs", "docker stats --no-stream", "docker inspect",
