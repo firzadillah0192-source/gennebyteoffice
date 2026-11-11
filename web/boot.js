@@ -11,7 +11,7 @@
   window.addEventListener("unhandledrejection", function (e) { banner(String(e.reason && e.reason.message || e.reason)); });
   var token = null; try { token = localStorage.getItem("office.token"); } catch (e) {}
   var guest = !token;                                                  // tanpa token = mode tamu
-  $("login").hidden = true; $("btn-logout").hidden = guest; $("btn-ledger").hidden = guest; $("btn-auto").hidden = guest; $("btn-login").hidden = !guest; $("guest-badge").hidden = !guest;
+  $("login").hidden = true; $("btn-logout").hidden = guest; $("btn-ledger").hidden = guest; $("btn-auto").hidden = guest; $("btn-chat").hidden = guest; $("btn-login").hidden = !guest; $("guest-badge").hidden = !guest;
   $("btn-login").addEventListener("click", function () { $("login-err").textContent = ""; $("login").hidden = false; $("token").focus(); });
   $("login-cancel").addEventListener("click", function () { $("login").hidden = true; });
   $("login-form").addEventListener("submit", function (ev) {

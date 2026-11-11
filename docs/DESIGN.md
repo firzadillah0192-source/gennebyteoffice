@@ -62,3 +62,12 @@ Karyawan `operator-bot` di ruang Director, mesin Claude Code, folder kerja `OPER
 - **Tahap ubah**: bila perlu mengubah sesuatu, Operator menulis `RENCANA_PERUBAHAN` → muncul di antrean persetujuan Director ("Jalankan di server: …"). Setelah disetujui, rencana dijalankan **langsung di folder kerja** (bukan cabang terpisah) dengan Bash penuh, tetap dibatasi daftar DENY (rahasia, rm, curl, ssh, sudo, dst.) dan `writeDeny` Operator (reset --hard, force push, prune, reboot).
 - Restart service Office sendiri dijadwalkan lewat `systemd-run --user --on-active=20s` agar tidak memutus tugas yang sedang berjalan.
 - Percakapan lanjutan, log live, dan tombol Hentikan memakai fitur Kontrol tugas di atas.
+
+## Chat langsung ke agent (halaman `chat.html`)
+Tombol **Chat** di topbar dan di kartu karyawan membuka halaman chat penuh.
+- **Banyak percakapan per agent** (`chat_sessions`), daftar di kiri. Setiap pesan = satu tugas biasa (`tasks.chat_session_id`), jadi antrean, log, Stop, dan persetujuan tetap sama.
+- **Sesi nyambung seperti SSH**: untuk mesin Claude, sesi disimpan (tanpa `--no-session-persistence`) dan pesan berikutnya memakai `--resume <session_id>`, sehingga agent mengingat seluruh percakapan. Bot non-Claude memakai konteks tugas sebelumnya.
+- **Live**: `GET /api/chat/:bot/stream?session=&after=` mengalirkan NDJSON (log baru, perubahan status pesan, status bot) selama 10 menit lalu klien menyambung ulang.
+- **Persetujuan di tempat**: rencana perubahan muncul sebagai kartu di dalam chat dengan tombol Setujui/Tolak.
+- **Agent di dalam VM-nya**: `operator-vm1` (ruang Gennexbyte) dan `operator-vm2` (ruang NxChat) dijalankan oleh worker remote dengan `AGENT_KIND=operator` di VM masing-masing (lihat `remote/README.md`).
+- Riwayat pesan mengikuti masa simpan tugas (`OFFICE_RETENTION_DAYS`).

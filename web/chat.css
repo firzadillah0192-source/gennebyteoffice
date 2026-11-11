@@ -1,0 +1,70 @@
+[hidden] { display:none !important; }
+:root { --bg:#0b0f19; --side:#0f1320; --card:#151b2b; --ink:#e8ebf2; --muted:#9aa4b8; --line:#232b3d; --accent:#4c9bff;
+  --working:#2d84f5; --waiting:#f5a623; --error:#e5484d; --done:#2db36a; --idle:#9aa3b2; color-scheme: dark; }
+* { box-sizing:border-box; }
+html, body { height:100%; margin:0; }
+body { display:flex; background:var(--bg); color:var(--ink); font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, select, textarea, input { font:inherit; color:inherit; }
+button { cursor:pointer; background:#1a2133; border:1px solid #2a3246; border-radius:8px; padding:6px 12px; }
+button:hover { border-color:var(--accent); }
+button.primary { background:var(--accent); border-color:var(--accent); color:#04122b; font-weight:600; }
+button.stop { background:var(--error); border-color:var(--error); color:#fff; font-weight:600; }
+a { color:var(--accent); text-decoration:none; }
+
+#side { width:280px; flex:none; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; gap:8px; padding:14px; overflow:auto; }
+.brand { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; } .brand b { font-size:15px; }
+.lbl { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-top:6px; }
+#bot { width:100%; background:#0a0e18; border:1px solid #2a3246; border-radius:8px; padding:8px; }
+.bot-info { font-size:12px; color:var(--muted); }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--idle); margin-right:6px; vertical-align:middle; }
+.dot.working { background:var(--working); } .dot.waiting_user { background:var(--waiting); } .dot.error { background:var(--error); } .dot.offline { background:#555c6b; }
+#sessions { display:flex; flex-direction:column; gap:2px; }
+#sessions .s { display:flex; align-items:center; gap:6px; padding:7px 8px; border-radius:8px; cursor:pointer; color:var(--ink); }
+#sessions .s:hover { background:#161d2e; } #sessions .s.on { background:#1c2640; }
+#sessions .s span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#sessions .s small { color:var(--muted); font-size:11px; }
+#sessions .s .x { visibility:hidden; padding:0 6px; border:0; background:none; color:var(--muted); }
+#sessions .s:hover .x { visibility:visible; }
+#sessions .empty { color:var(--muted); font-size:12px; padding:4px 8px; }
+
+#main { flex:1; min-width:0; display:flex; flex-direction:column; }
+#head { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--line); }
+#head h1 { margin:0; font-size:16px; } #head small { color:var(--muted); }
+#menu { display:none; }
+#log { flex:1; overflow:auto; padding:18px max(18px, calc((100% - 820px) / 2)); display:flex; flex-direction:column; gap:14px; }
+.hint { color:var(--muted); text-align:center; margin:auto; max-width:440px; }
+.u { align-self:flex-end; max-width:78%; background:#1f3a66; border-radius:14px 14px 4px 14px; padding:9px 13px; white-space:pre-wrap; word-break:break-word; }
+.a { align-self:stretch; display:flex; flex-direction:column; gap:6px; }
+.a .who { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+.badge { font-size:11px; padding:1px 8px; border-radius:99px; background:var(--idle); color:#fff; }
+.badge.running { background:var(--working); } .badge.done { background:var(--done); } .badge.failed { background:var(--error); } .badge.queued { background:#6b7385; }
+.term { background:#070a12; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height:340px; overflow:auto; }
+.term div { white-space:pre-wrap; word-break:break-word; }
+.term .tool::before { content:"$ "; color:#5ad17a; } .term .tool { color:#ffc145; }
+.term .note { color:#c9d1e3; } .term .step { color:#8fb4ff; } .term .system { color:var(--muted); font-style:italic; }
+.term.closed { max-height:none; } details.steps summary { cursor:pointer; color:var(--muted); font-size:12px; }
+.out { background:var(--card); border:1px solid var(--line); border-radius:4px 14px 14px 14px; padding:10px 14px; word-break:break-word; }
+.out.failed, .out.stopped { border-color:#5a2a2e; }
+.out p { margin:.35em 0; } .out ul, .out ol { margin:.35em 0 .35em 1.2em; padding:0; }
+.out code { font:12px ui-monospace, monospace; background:#8882; border-radius:4px; padding:1px 5px; }
+.out pre { background:#070a12; border:1px solid var(--line); border-radius:8px; padding:8px 10px; overflow:auto; font:12px/1.5 ui-monospace, monospace; margin:.5em 0; }
+.out .mh { font-weight:700; margin:.6em 0 .2em; }
+.typing { color:var(--muted); font-size:13px; } .typing i { animation:blink 1.2s infinite; font-style:normal; }
+@keyframes blink { 50% { opacity:.2; } }
+.approve { border:1px solid var(--waiting); background:#2a210f; border-radius:10px; padding:10px 12px; }
+.approve pre { white-space:pre-wrap; font:12px/1.5 ui-monospace, monospace; margin:6px 0; }
+.approve .row { display:flex; gap:8px; }
+
+#composer { display:flex; gap:8px; align-items:flex-end; padding:12px max(18px, calc((100% - 820px) / 2)) 16px; border-top:1px solid var(--line); }
+#text { flex:1; resize:none; max-height:200px; background:#0a0e18; border:1px solid #2a3246; border-radius:12px; padding:10px 12px; }
+#login { position:fixed; inset:0; background:#000a; display:grid; place-items:center; }
+#login form { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; display:grid; gap:10px; width:min(320px, 90vw); }
+#login input { background:#0a0e18; border:1px solid #2a3246; border-radius:8px; padding:8px; } #login small { color:var(--error); }
+
+@media (max-width:760px) {
+  #side { position:fixed; inset:0 auto 0 0; z-index:5; transform:translateX(-100%); transition:transform .2s; width:min(300px, 86vw); }
+  body.menu #side { transform:none; box-shadow:0 0 40px #000a; }
+  #menu { display:inline-block; padding:4px 10px; }
+  #log, #composer { padding-left:12px; padding-right:12px; }
+  .u { max-width:90%; }
+}

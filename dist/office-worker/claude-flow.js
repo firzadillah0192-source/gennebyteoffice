@@ -16,16 +16,24 @@ async function waitApproval(def, id, ctl) {
       ctl?.check();
       const dirs = [def.cwd], live = { signal: ctl?.signal, onLog: ctl && ((t, k) => ctl.log(t, k)) };
       const ask = task.prompt || task.instruction;
+      // Chat langsung: lanjutkan sesi Claude yang sama (cwd harus sama, jadi eksekusi di worktree tidak melanjutkan sesi).
+      const chat = task.chat_session ? { persist: true, resume: task.claude_session || undefined } : undefined;
+      const keep = (r) => { if (chat && r?.session_id) { task.claude_session_out = r.session_id; chat.resume = r.session_id; } return r; };
       await report("working", "menyelidiki (Claude Code)");
-      const inv = await runClaude({ cwd: def.cwd, system: def.role + standingBlock(task.standing), prompt: `Tugas dari pengguna: ${ask}\n\nTahap sekarang: PENYELIDIKAN (baca-saja).`, tools: def.readTools, allow: def.readAllow, deny: ["Edit", "Write", "NotebookEdit"], ...live });
+      const inv = await runClaude({ cwd: def.cwd, system: def.role + standingBlock(task.standing), prompt: `Tugas dari pengguna: ${ask}\n\nTahap sekarang: PENYELIDIKAN (baca-saja).`, tools: def.readTools, allow: def.readAllow, deny: ["Edit", "Write", "NotebookEdit"], ...live, session: chat }).then(keep);
       const m = inv.text.match(/RENCANA_PERUBAHAN:\s*([\s\S]+)$/);
       const findings = (await redact(inv.text.replace(/RENCANA_PERUBAHAN:[\s\S]*$/, "").trim(), dirs)) || "(tanpa temuan tertulis)";
       if (!m || !def.canWrite) return findings;
       const plan = (await redact(m[1].trim(), dirs)).slice(0, 3000);
-      const ap = await call("/api/approval", def.token, { action: `Ubah kode: ${task.instruction.slice(0, 90)}`, detail: { plan, task: task.id } });
+      const ap = await call("/api/approval", def.token, { action: `${def.inPlace ? "Jalankan di server" : "Ubah kode"}: ${task.instruction.slice(0, 90)}`, detail: { plan, task: task.id } });
       await ctl?.log(`menunggu persetujuan #${ap.approval_id} di ruang Director`, "note");
       const decision = await waitApproval(def, ap.approval_id, ctl);
       if (decision !== "approved") return `${findings}\n\nRencana perubahan ${decision === "rejected" ? "DITOLAK" : "kedaluwarsa"}; tidak ada yang diubah.`;
+      if (def.inPlace) {                                   // Operator: dijalankan langsung di folder kerja setelah disetujui
+        await report("working", "menjalankan rencana yang disetujui");
+        const ex = await runClaude({ cwd: def.cwd, system: def.role + standingBlock(task.standing), prompt: `Tugas: ${ask}\n\nTahap sekarang: EKSEKUSI. Jalankan HANYA rencana yang telah disetujui ini, lalu verifikasi dan laporkan:\n\n${plan}`, tools: def.writeTools, allow: def.writeAllow, deny: def.writeDeny || [], ...live, session: chat }).then(keep);
+        return (await redact(`${findings}\n\n— Eksekusi (disetujui) —\n${ex.text}`, dirs)).slice(0, 3900);
+      }
       await report("working", "mengubah kode di cabang terpisah");
       const wt = await makeWorktree(def.cwd, task.id);
       const ex = await runClaude({ cwd: wt.dir, system: def.role + standingBlock(task.standing), prompt: `Tugas: ${ask}\n\nTahap sekarang: EKSEKUSI. Kerjakan HANYA rencana yang telah disetujui ini, lalu verifikasi dan laporkan:\n\n${plan}`, tools: def.writeTools, allow: def.writeAllow, ...live });

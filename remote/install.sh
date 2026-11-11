@@ -16,14 +16,16 @@ echo "Node $(node -v), claude $(claude --version 2>/dev/null | head -1)"
 say "Pengaturan"
 [ -f .env ] && { echo "Ditemukan .env lama; dipakai ulang. Hapus file .env bila ingin mengisi ulang."; } || {
   read -r -p "Alamat Office [http://192.168.18.16:4100]: " URL; URL="${URL:-http://192.168.18.16:4100}"
+  read -r -p "Jenis agent: engineer (satu aplikasi) atau operator (seluruh VM, chat langsung) [engineer]: " KIND; KIND="${KIND:-engineer}"
+  case "$KIND" in engineer|operator) ;; *) echo "Jenis harus engineer atau operator."; exit 1;; esac
   read -r -p "ID bot [engineer-nxbooth]: " BID; BID="${BID:-engineer-nxbooth}"
   read -r -p "Nama platform [NxBooth]: " PLAT; PLAT="${PLAT:-NxBooth}"
-  read -r -p "Folder aplikasi di VM ini (path lengkap): " WD
+  if [ "$KIND" = operator ]; then read -r -p "Folder kerja Operator [$HOME]: " WD; WD="${WD:-$HOME}"; else read -r -p "Folder aplikasi di VM ini (path lengkap): " WD; fi
   [ -d "$WD" ] || { echo "Folder '$WD' tidak ada."; exit 1; }
   read -r -s -p "Token bot (tempel; tidak terlihat): " TOK; echo
   [ -n "$TOK" ] || { echo "Token kosong."; exit 1; }
   umask 077
-  sed -e "s|^OFFICE_URL=.*|OFFICE_URL=$URL|" -e "s|^BOT_ID=.*|BOT_ID=$BID|" -e "s|^PLATFORM=.*|PLATFORM=$PLAT|" -e "s|^WORKDIR=.*|WORKDIR=$WD|" -e "s|^BOT_TOKEN=.*|BOT_TOKEN=$TOK|" .env.example > .env
+  sed -e "s|^OFFICE_URL=.*|OFFICE_URL=$URL|" -e "s|^BOT_ID=.*|BOT_ID=$BID|" -e "s|^PLATFORM=.*|PLATFORM=$PLAT|" -e "s|^WORKDIR=.*|WORKDIR=$WD|" -e "s|^BOT_TOKEN=.*|BOT_TOKEN=$TOK|" -e "s|^AGENT_KIND=.*|AGENT_KIND=$KIND|" .env.example > .env
   chmod 600 .env
 }
 set -a; . ./.env; set +a

@@ -30,19 +30,21 @@ function toolLine(name, input = {}) {
 }
 
 // onLog(text, kind) menerima langkah Claude secara live (stream-json); signal menghentikan proses bila admin menekan Hentikan.
-export function runClaude({ cwd, system, prompt, tools, allow, deny = [], signal, onLog }) {
+// session: { persist, resume } — chat langsung: sesi Claude disimpan dan dilanjutkan (--resume) supaya agent ingat seluruh percakapan.
+export function runClaude({ cwd, system, prompt, tools, allow, deny = [], signal, onLog, session }) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
     try { countRun(); } catch (e) { return reject(e); }
-    const args = ["-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--append-system-prompt", system,
+    const args = ["-p", "--output-format", "stream-json", "--verbose", ...(session?.persist ? [] : ["--no-session-persistence"]), ...(session?.resume ? ["--resume", session.resume] : []), "--append-system-prompt", system,
       "--tools", tools.join(","), "--disallowedTools", ...DENY, ...deny, "--allowedTools", ...allow];     // daftar variadik di akhir; prompt lewat stdin
     const env = { ...process.env, PATH: `${HOME}/.local/bin:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`,
       GIT_AUTHOR_NAME: "Gennexbyte Office Bot", GIT_AUTHOR_EMAIL: "office-bot@gennexbyte.local", GIT_COMMITTER_NAME: "Gennexbyte Office Bot", GIT_COMMITTER_EMAIL: "office-bot@gennexbyte.local" };
     const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-    let buf = "", err = "", final = null, lastText = "", raw = "", ended = false;
+    let buf = "", err = "", final = null, lastText = "", raw = "", ended = false, sid = null;
     const finish = (fn, v) => { if (ended) return; ended = true; clearTimeout(timer); signal?.removeEventListener("abort", onAbort); fn(v); };
     const line = (l) => {
       if (!l.trim()) return; let j; try { j = JSON.parse(l); } catch { raw += l + "\n"; return; }
+      if (j.session_id) sid = j.session_id;
       if (j.type === "result") { final = j; return; }
       if (j.type === "assistant") for (const c of j.message?.content ?? []) {
         if (c.type === "tool_use") onLog?.(toolLine(c.name, c.input), "tool");
@@ -57,8 +59,8 @@ export function runClaude({ cwd, system, prompt, tools, allow, deny = [], signal
     child.on("error", (e) => finish(reject, e));
     child.on("close", (code) => { line(buf);
       if (final) { if (final.is_error) return finish(reject, new Error(String(final.result || "Claude error").slice(0, 300)));
-        return finish(resolve, { text: String(final.result ?? lastText), cost: final.total_cost_usd, turns: final.num_turns }); }
-      code === 0 && (lastText || raw.trim()) ? finish(resolve, { text: lastText || raw.trim() }) : finish(reject, new Error(`claude keluar kode ${code}: ${(err || raw).slice(0, 300)}`)); });
+        return finish(resolve, { text: String(final.result ?? lastText), cost: final.total_cost_usd, turns: final.num_turns, session_id: sid }); }
+      code === 0 && (lastText || raw.trim()) ? finish(resolve, { text: lastText || raw.trim(), session_id: sid }) : finish(reject, new Error(`claude keluar kode ${code}: ${(err || raw).slice(0, 300)}`)); });
     child.stdin.end(prompt);
   });
 }

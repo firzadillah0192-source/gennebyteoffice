@@ -122,6 +122,7 @@ function renderAuto() {
   const small = innerWidth <= 760; setText(b, au.paused ? (small ? "Auto: JEDA" : "Otomatis: DIJEDA") : (small ? `Auto ${au.used_today}/${au.daily_max}` : `Otomatis aktif · ${au.used_today}/${au.daily_max}`)); b.classList.toggle("warn", !!au.paused);
   b.title = "Rutinitas berjadwal para karyawan. Klik untuk " + (au.paused ? "melanjutkan" : "menjeda semuanya") + `. Terpakai ${au.used_today} dari batas ${au.daily_max} tugas otomatis hari ini.`;
 }
+$("btn-chat").onclick = () => { location.href = "./chat.html" + (selected ? `?bot=${encodeURIComponent(selected)}` : ""); };
 $("btn-auto").onclick = async () => { const au = state?.auto; if (!au) return; await fetch("/api/auto", { method: "POST", headers: headers(), body: JSON.stringify({ paused: !au.paused }) }); lastVersion = -1; poll(); };
 // ---- daftar ruangan (kiri) dan karyawan (kanan), seperti acuan ----
 const STD = { working: "bekerja", idle: "istirahat", waiting_user: "menunggu Anda", error: "error", done: "selesai" };
@@ -188,7 +189,7 @@ async function renderPanel() {
   if (p.dataset.bot !== b.id) {                                   // kartu dibangun ulang hanya saat ganti bot
     p.dataset.bot = b.id; statsData = null; statsFor = null;
     const off = guest ? "disabled" : "", color = b.look?.color || "#4c9bff";
-    p.innerHTML = `<div class="phead" style="--c:${esc(color)}"><i class="av"></i><div class="ht"><h2></h2><small class="hr"></small></div>${guest ? "" : `<button id="p-cfg" class="x" title="Instruksi tetap & rutinitas">Atur</button>`}<button id="p-close" class="x" title="Tutup">✕</button></div>
+    p.innerHTML = `<div class="phead" style="--c:${esc(color)}"><i class="av"></i><div class="ht"><h2></h2><small class="hr"></small></div>${guest ? "" : `<button id="p-chat" class="x" title="Buka chat langsung dengan karyawan ini">Chat</button><button id="p-cfg" class="x" title="Instruksi tetap & rutinitas">Atur</button>`}<button id="p-close" class="x" title="Tutup">✕</button></div>
       <div id="p-status" class="chip"></div><div id="p-step" class="pstep"></div>
       <div id="p-stats" class="pstats"></div><div id="p-share" class="pshare"></div>
       <div class="prow"><input id="p-task" ${off} autocomplete="off" placeholder="${guest ? "Mode tamu — hanya lihat" : `Beri tugas untuk ${esc(b.name)}…`}"><button class="primary" id="p-send" ${off}>Kirim</button></div>
@@ -199,6 +200,7 @@ async function renderPanel() {
     p.querySelector("h2").textContent = b.name; p.querySelector(".hr").textContent = `${shortRole(b.role)} · ${LAYOUT[b.room]?.label ?? b.room}`;
     $("p-close").onclick = () => select(null);
     if (!guest) $("p-cfg").onclick = () => openCfg(b.id);
+    if (!guest) $("p-chat").onclick = () => { location.href = `./chat.html?bot=${encodeURIComponent(b.id)}`; };
     if (!guest) $("p-send").onclick = async () => {
       const v = $("p-task").value.trim(); if (!v) return;
       const r = await fetch("/api/tasks", { method: "POST", headers: headers(), body: JSON.stringify({ bot: b.id, instruction: v }) });

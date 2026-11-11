@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat Agent · Gennexbyte Office</title>
+  <link rel="stylesheet" href="./chat.css">
+</head>
+<body>
+  <aside id="side">
+    <div class="brand"><a href="./" title="Kembali ke kantor 3D">← Kantor</a><b>Chat Agent</b></div>
+    <label class="lbl" for="bot">Agent</label>
+    <select id="bot"></select>
+    <div id="bot-info" class="bot-info"></div>
+    <button id="new" class="primary">+ Percakapan baru</button>
+    <div class="lbl">Percakapan</div>
+    <nav id="sessions"></nav>
+  </aside>
+  <main id="main">
+    <header id="head"><button id="menu" aria-label="Daftar percakapan">☰</button><div><h1 id="title">Pilih agent</h1><small id="sub"></small></div></header>
+    <section id="log" aria-live="polite"></section>
+    <form id="composer">
+      <textarea id="text" rows="1" placeholder="Ketik perintah atau pertanyaan… (Enter kirim, Shift+Enter baris baru)"></textarea>
+      <button type="button" id="stop" class="stop" hidden>Stop</button>
+      <button type="submit" id="send" class="primary">Kirim</button>
+    </form>
+  </main>
+  <div id="login" hidden><form id="login-form"><b>Masuk admin</b><input id="token" type="password" placeholder="Token admin" autocomplete="current-password" required><button class="primary">Masuk</button><small id="login-err"></small></form></div>
+  <script type="module" src="./chat.js"></script>
+</body>
+</html>
